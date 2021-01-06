@@ -126,7 +126,7 @@ bool load_runtime(HOSTFXR_CONTEXT* hostfxr, const char* config_path)
     return true;
 }
 
-bool load_assembly(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, const char* type_name, const char* method_name)
+bool load_assembly(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, const char* type_name, const char* method_name, const char* delegate_type_name)
 {
     component_entry_point_fn entry_point = NULL;
 
@@ -134,12 +134,12 @@ bool load_assembly(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, const ch
         assembly_path,
         type_name,
         method_name,
-        NULL /* delegate_type_name */,
+        delegate_type_name,
         NULL,
         (void**) &entry_point);
 
     if ((rc != 0) || (NULL == entry_point)) {
-        printf("load_assembly_and_get_function_pointer failure!\n");   
+        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc);   
     }
 
     hostfxr->entry_point = entry_point;
@@ -192,7 +192,7 @@ bool run_sample()
     const char* type_name = "DotNetLib.Lib, DotNetLib";
     const char* method_name = "Hello";
 
-    if (!load_assembly(&hostfxr, assembly_path, type_name, method_name)) {
+    if (!load_assembly(&hostfxr, assembly_path, type_name, method_name, NULL)) {
         printf("failed to load assembly!\n");
     }
 
@@ -216,7 +216,7 @@ bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
         (void**) &load_assembly_and_get_function_pointer);
 
     if ((rc != 0) || (NULL == load_assembly_and_get_function_pointer)) {
-        printf("get_runtime_delegate failure\n");
+        printf("get_runtime_delegate failure: 0x%08X\n", rc);
         return false;
     }
 
@@ -228,14 +228,13 @@ bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
     return true;
 }
 
-bool run_pwsh()
+bool run_pwsh_app()
 {
     HOSTFXR_CONTEXT hostfxr;
     char base_path[HOSTFXR_MAX_PATH];
     char hostfxr_path[HOSTFXR_MAX_PATH];
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
-    char command_path[HOSTFXR_MAX_PATH];
 
     strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
     snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
@@ -247,10 +246,9 @@ bool run_pwsh()
 
     snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
     snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
-    snprintf(command_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
 
     char* command_args[] = {
-        command_path,
+        assembly_path,
         "-NoLogo",
         "-NoExit",
         "-Command",
@@ -265,23 +263,13 @@ bool run_pwsh()
 
     hostfxr.run_app(hostfxr.context_handle);
 
-#if 0
-    const char* type_name = "Microsoft.PowerShell.ManagedPSEntry";
-    const char* method_name = "Main";
-
-    if (!load_assembly(&hostfxr, assembly_path, type_name, method_name)) {
-        printf("failed to load assembly!\n");
-        return false;
-    }
-#endif
-
     return true;
 }
 
 int main(int argc, char** argv)
 {
     //run_sample();
-    run_pwsh();
+    run_pwsh_app();
 
     return 0;
 }
