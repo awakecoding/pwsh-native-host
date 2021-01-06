@@ -20,3 +20,5 @@ https://github.com/dotnet/runtime/issues/35329
 https://github.com/dotnet/runtime/issues/35465
 
 https://github.com/dotnet/runtime/pull/36990
+
+https://github.com/sanosdole/nodeclrhost
