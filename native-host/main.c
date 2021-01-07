@@ -125,6 +125,18 @@ bool load_runtime(HOSTFXR_CONTEXT* hostfxr, const char* config_path)
     return true;
 }
 
+typedef void* hPowerShell;
+typedef hPowerShell (CORECLR_DELEGATE_CALLTYPE * fnPowerShell_Create)(void);
+typedef void (CORECLR_DELEGATE_CALLTYPE * fnPowerShell_AddScript)(hPowerShell handle, const char* script);
+typedef void (CORECLR_DELEGATE_CALLTYPE * fnPowerShell_Invoke)(hPowerShell handle);
+
+typedef struct
+{
+    fnPowerShell_Create Create;
+    fnPowerShell_AddScript AddScript;
+    fnPowerShell_Invoke Invoke;
+} iPowerShell;
+
 bool run_sample()
 {
     HOSTFXR_CONTEXT hostfxr;
@@ -139,9 +151,9 @@ bool run_sample()
         return -1;
     }
 
-    strncpy(base_path, "/opt/wayk/dev/pwsh-native-host/DotNetLib/bin/Release/net5.0", HOSTFXR_MAX_PATH);
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "DotNetLib");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "DotNetLib");
+    strncpy(base_path, "/opt/wayk/dev/pwsh-native-host/NativeHost/bin/Release/net5.0", HOSTFXR_MAX_PATH);
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "NativeHost");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "NativeHost");
 
     if (!load_runtime(&hostfxr, runtime_config_path)) {
         printf("failed to load runtime!\n");
@@ -153,7 +165,7 @@ bool run_sample()
 
     int rc = hostfxr.load_assembly_and_get_function_pointer(
         assembly_path,
-        "DotNetLib.Lib, DotNetLib",
+        "NativeHost.Bindings, NativeHost",
         "RunCommand",
         UNMANAGEDCALLERSONLY_METHOD,
         NULL,
@@ -163,8 +175,46 @@ bool run_sample()
         printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc);   
     }
 
-    //entry_point("this is a message from native code!");
-    entry_point("Set-Content -Path '/tmp/pwsh.txt' -Value 'success'");
+    //entry_point("Set-Content -Path '/tmp/pwsh.txt' -Value 'success'");
+
+    iPowerShell iface;
+    memset(&iface, 0, sizeof(iface));
+
+    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
+        UNMANAGEDCALLERSONLY_METHOD, NULL,
+        (void**) &iface.Create);
+
+    if (rc != 0) {
+        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
+    }
+
+    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
+        UNMANAGEDCALLERSONLY_METHOD, NULL,
+        (void**) &iface.AddScript);
+
+    if (rc != 0) {
+        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
+    }
+
+    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
+        UNMANAGEDCALLERSONLY_METHOD, NULL,
+        (void**) &iface.Invoke);
+
+    if (rc != 0) {
+        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
+    }
+
+    hPowerShell handle = iface.Create();
+
+    if (!handle) {
+        printf("PowerShell_Create failure!\n");
+    }
+
+    iface.AddScript(handle, "Set-Content -Path '/tmp/pwsh.txt' -Value 'feel the power of the shell'");
+    iface.Invoke(handle);
 }
 
 bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)

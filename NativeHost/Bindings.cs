@@ -2,9 +2,9 @@
 using System.Runtime.InteropServices;
 using System.Management.Automation;
 
-namespace DotNetLib
+namespace NativeHost
 {
-    public static class Lib
+    public static class Bindings
     {
         [UnmanagedCallersOnly]
         public static void RunCommand(IntPtr ptrCommand)
