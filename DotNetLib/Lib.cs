@@ -1,55 +1,55 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using System.Management.Automation;
 
 namespace DotNetLib
 {
     public static class Lib
     {
-        private static int s_CallCount = 1;
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct LibArgs
-        {
-            public IntPtr Message;
-            public int Number;
-        }
-
-        public static int Hello(IntPtr arg, int argLength)
-        {
-            if (argLength < System.Runtime.InteropServices.Marshal.SizeOf(typeof(LibArgs)))
-            {
-                return 1;
-            }
-
-            LibArgs libArgs = Marshal.PtrToStructure<LibArgs>(arg);
-            Console.WriteLine($"Hello, world! from {nameof(Lib)} [count: {s_CallCount++}]");
-            PrintLibArgs(libArgs);
-            return 0;
-        }
-
-        public delegate void CustomEntryPointDelegate(LibArgs libArgs);
-        public static void CustomEntryPoint(LibArgs libArgs)
-        {
-            Console.WriteLine($"Hello, world! from {nameof(CustomEntryPoint)} in {nameof(Lib)}");
-            PrintLibArgs(libArgs);
-        }
-
-#if NET5_0
         [UnmanagedCallersOnly]
-        public static void CustomEntryPointUnmanaged(LibArgs libArgs)
+        public static void RunCommand(IntPtr ptrCommand)
         {
-            CustomEntryPoint(libArgs);
+            string command = Marshal.PtrToStringUTF8(ptrCommand);
+            Console.WriteLine($"{command}");
+            PowerShell ps = PowerShell.Create();
+            ps.AddScript(command);
+            ps.Invoke();
         }
-#endif
 
-        private static void PrintLibArgs(LibArgs libArgs)
+        [UnmanagedCallersOnly]
+        public static IntPtr PowerShell_Create()
         {
-            string message = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                ? Marshal.PtrToStringUni(libArgs.Message)
-                : Marshal.PtrToStringUTF8(libArgs.Message);
+            // https://stackoverflow.com/a/32108252
+            PowerShell ps = PowerShell.Create();
+            GCHandle gch = GCHandle.Alloc(ps);
+            IntPtr ptrHandle = GCHandle.ToIntPtr(gch);
+            return ptrHandle;
+        }
 
-            Console.WriteLine($"-- message: {message}");
-            Console.WriteLine($"-- number: {libArgs.Number}");
+        [UnmanagedCallersOnly]
+        public static void PowerShell_AddCommand(IntPtr ptrHandle, IntPtr ptrCommand)
+        {
+            GCHandle gch = GCHandle.FromIntPtr(ptrHandle);
+            PowerShell ps = (PowerShell) gch.Target;
+            string command = Marshal.PtrToStringUTF8(ptrCommand);
+            ps.AddCommand(command);
+        }
+
+        [UnmanagedCallersOnly]
+        public static void PowerShell_AddScript(IntPtr ptrHandle, IntPtr ptrScript)
+        {
+            GCHandle gch = GCHandle.FromIntPtr(ptrHandle);
+            PowerShell ps = (PowerShell) gch.Target;
+            string script = Marshal.PtrToStringUTF8(ptrScript);
+            ps.AddScript(script);
+        }
+
+        [UnmanagedCallersOnly]
+        public static void PowerShell_Invoke(IntPtr ptrHandle)
+        {
+            GCHandle gch = GCHandle.FromIntPtr(ptrHandle);
+            PowerShell ps = (PowerShell) gch.Target;
+            ps.Invoke();
         }
     }
 }

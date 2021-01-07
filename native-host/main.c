@@ -65,7 +65,6 @@ struct hostfxr_context
     hostfxr_close_fn close;
 
     load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer;
-    component_entry_point_fn entry_point;
     hostfxr_handle context_handle;
 };
 typedef struct hostfxr_context HOSTFXR_CONTEXT;
@@ -126,46 +125,6 @@ bool load_runtime(HOSTFXR_CONTEXT* hostfxr, const char* config_path)
     return true;
 }
 
-bool load_assembly(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, const char* type_name, const char* method_name, const char* delegate_type_name)
-{
-    component_entry_point_fn entry_point = NULL;
-
-    int rc = hostfxr->load_assembly_and_get_function_pointer(
-        assembly_path,
-        type_name,
-        method_name,
-        delegate_type_name,
-        NULL,
-        (void**) &entry_point);
-
-    if ((rc != 0) || (NULL == entry_point)) {
-        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc);   
-    }
-
-    hostfxr->entry_point = entry_point;
-
-    return true;
-}
-
-struct entry_point_args
-{
-    const char* message;
-    int number;
-};
-typedef struct entry_point_args ENTRY_POINT_ARGS;
-
-bool call_entry_point(HOSTFXR_CONTEXT* hostfxr)
-{
-    ENTRY_POINT_ARGS args;
-
-    for (int i = 0; i < 3; i++)
-    {
-        args.message = "from host!";
-        args.number = i;
-        hostfxr->entry_point(&args, sizeof(args));
-    }
-}
-
 bool run_sample()
 {
     HOSTFXR_CONTEXT hostfxr;
@@ -180,7 +139,7 @@ bool run_sample()
         return -1;
     }
 
-    strncpy(base_path, "/opt/wayk/dev/pwsh-native-host/DotNetLib/bin/Release/net5.0/linux-x64", HOSTFXR_MAX_PATH);
+    strncpy(base_path, "/opt/wayk/dev/pwsh-native-host/DotNetLib/bin/Release/net5.0", HOSTFXR_MAX_PATH);
     snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "DotNetLib");
     snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "DotNetLib");
 
@@ -189,14 +148,23 @@ bool run_sample()
         return -1;
     }
 
-    const char* type_name = "DotNetLib.Lib, DotNetLib";
-    const char* method_name = "Hello";
+    typedef void (CORECLR_DELEGATE_CALLTYPE *custom_entry_point_fn)(const char* message);
+    custom_entry_point_fn entry_point = NULL;
 
-    if (!load_assembly(&hostfxr, assembly_path, type_name, method_name, NULL)) {
-        printf("failed to load assembly!\n");
+    int rc = hostfxr.load_assembly_and_get_function_pointer(
+        assembly_path,
+        "DotNetLib.Lib, DotNetLib",
+        "RunCommand",
+        UNMANAGEDCALLERSONLY_METHOD,
+        NULL,
+        (void**) &entry_point);
+
+    if ((rc != 0) || (NULL == entry_point)) {
+        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc);   
     }
 
-    call_entry_point(&hostfxr);
+    //entry_point("this is a message from native code!");
+    entry_point("Set-Content -Path '/tmp/pwsh.txt' -Value 'success'");
 }
 
 bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
@@ -268,8 +236,8 @@ bool run_pwsh_app()
 
 int main(int argc, char** argv)
 {
-    //run_sample();
-    run_pwsh_app();
+    run_sample();
+    //run_pwsh_app();
 
     return 0;
 }

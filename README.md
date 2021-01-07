@@ -24,3 +24,5 @@ https://github.com/dotnet/runtime/pull/36990
 https://github.com/dotnet/docs/issues/16646
 
 https://github.com/sanosdole/nodeclrhost
+
+https://keithbabinec.com/2020/02/15/how-to-run-powershell-core-scripts-from-net-core-applications/
