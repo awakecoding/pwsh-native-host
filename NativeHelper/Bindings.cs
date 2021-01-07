@@ -1,5 +1,7 @@
 ﻿using System;
+using System.IO;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Runtime.InteropServices;
 
 namespace NativeHelper
@@ -11,14 +13,15 @@ namespace NativeHelper
         {
             byte[] bytes = new byte[size];
             Marshal.Copy(ptr, bytes, 0, size);
-            Assembly.Load(bytes);
+            Stream stream = new MemoryStream(bytes);
+            AssemblyLoadContext.Default.LoadFromStream(stream);
         }
 
         [UnmanagedCallersOnly]
         public static void LoadAssemblyFile(IntPtr ptr)
         {
             string filename = Marshal.PtrToStringUTF8(ptr);
-            Assembly.LoadFile(filename);
+            AssemblyLoadContext.Default.LoadFromAssemblyPath(filename);
         }
     }
 }

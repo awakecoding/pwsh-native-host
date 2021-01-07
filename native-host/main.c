@@ -210,7 +210,7 @@ bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerSh
     int rc;
     memset(iface, 0, sizeof(iPowerShell));
 
-    if (1)
+    if (0)
     {
          hostfxr->load_assembly_and_get_function_pointer(assembly_path,
             "NativeHost.Bindings, NativeHost", "PowerShell_Create",
@@ -240,6 +240,8 @@ bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerSh
             printf("couldn't load %s\n", assembly_path);
             return false;
         }
+
+        printf("loaded %s (%d bytes)\n", assembly_path, (int) assembly_size);
 
         g_LoadAssemblyData(assembly_data, (int32_t) assembly_size);
         free(assembly_data);
