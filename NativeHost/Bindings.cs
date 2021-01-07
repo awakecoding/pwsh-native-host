@@ -10,7 +10,6 @@ namespace NativeHost
         public static void RunCommand(IntPtr ptrCommand)
         {
             string command = Marshal.PtrToStringUTF8(ptrCommand);
-            Console.WriteLine($"{command}");
             PowerShell ps = PowerShell.Create();
             ps.AddScript(command);
             ps.Invoke();
@@ -21,7 +20,7 @@ namespace NativeHost
         {
             // https://stackoverflow.com/a/32108252
             PowerShell ps = PowerShell.Create();
-            GCHandle gch = GCHandle.Alloc(ps);
+            GCHandle gch = GCHandle.Alloc(ps, GCHandleType.Normal);
             IntPtr ptrHandle = GCHandle.ToIntPtr(gch);
             return ptrHandle;
         }

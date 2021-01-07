@@ -137,6 +137,31 @@ typedef struct
     fnPowerShell_Invoke Invoke;
 } iPowerShell;
 
+bool call_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path)
+{
+    iPowerShell iface;
+    memset(&iface, 0, sizeof(iface));
+
+    hostfxr->load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface.Create);
+
+    hostfxr->load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface.AddScript);
+
+    hostfxr->load_assembly_and_get_function_pointer(assembly_path,
+        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface.Invoke);
+
+    hPowerShell handle = iface.Create();
+    iface.AddScript(handle, "Set-Content -Path '/tmp/pwsh-date.txt' -Value \"Microsoft.PowerShell.SDK: $(Get-Date)\"");
+    iface.AddScript(handle, "$(lsof -p $PID | grep dll) > /tmp/pwsh-lsof.txt");
+    iface.Invoke(handle);
+
+    return true;
+}
+
 bool run_sample()
 {
     HOSTFXR_CONTEXT hostfxr;
@@ -160,61 +185,7 @@ bool run_sample()
         return -1;
     }
 
-    typedef void (CORECLR_DELEGATE_CALLTYPE *custom_entry_point_fn)(const char* message);
-    custom_entry_point_fn entry_point = NULL;
-
-    int rc = hostfxr.load_assembly_and_get_function_pointer(
-        assembly_path,
-        "NativeHost.Bindings, NativeHost",
-        "RunCommand",
-        UNMANAGEDCALLERSONLY_METHOD,
-        NULL,
-        (void**) &entry_point);
-
-    if ((rc != 0) || (NULL == entry_point)) {
-        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc);   
-    }
-
-    //entry_point("Set-Content -Path '/tmp/pwsh.txt' -Value 'success'");
-
-    iPowerShell iface;
-    memset(&iface, 0, sizeof(iface));
-
-    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
-        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
-        UNMANAGEDCALLERSONLY_METHOD, NULL,
-        (void**) &iface.Create);
-
-    if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
-    }
-
-    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
-        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
-        UNMANAGEDCALLERSONLY_METHOD, NULL,
-        (void**) &iface.AddScript);
-
-    if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
-    }
-
-    rc = hostfxr.load_assembly_and_get_function_pointer(assembly_path,
-        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
-        UNMANAGEDCALLERSONLY_METHOD, NULL,
-        (void**) &iface.Invoke);
-
-    if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer failure!: 0x%08X\n", rc); 
-    }
-
-    hPowerShell handle = iface.Create();
-
-    if (!handle) {
-        printf("PowerShell_Create failure!\n");
-    }
-
-    iface.AddScript(handle, "Set-Content -Path '/tmp/pwsh.txt' -Value 'feel the power of the shell'");
-    iface.Invoke(handle);
+    call_pwsh_sdk(&hostfxr, assembly_path);
 }
 
 bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
@@ -284,10 +255,51 @@ bool run_pwsh_app()
     return true;
 }
 
+bool run_pwsh_lib()
+{
+    HOSTFXR_CONTEXT hostfxr;
+    char base_path[HOSTFXR_MAX_PATH];
+    char hostfxr_path[HOSTFXR_MAX_PATH];
+    char runtime_config_path[HOSTFXR_MAX_PATH];
+    char assembly_path[HOSTFXR_MAX_PATH];
+
+    strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
+    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
+
+    if (!load_hostfxr(&hostfxr, hostfxr_path)) {
+        printf("failed to load hostfxr!\n");
+        return false;
+    }
+
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
+
+    char* command_args[] = {
+        assembly_path
+    };
+    int command_argc = sizeof(command_args) / sizeof(char*);
+
+    if (!load_command(&hostfxr, command_argc, (const char**) command_args)) {
+        printf("failed to load runtime!\n");
+        return false;
+    }
+
+    char host_base_path[HOSTFXR_MAX_PATH];
+    char host_assembly_path[HOSTFXR_MAX_PATH];
+
+    strncpy(host_base_path, "/opt/wayk/dev/pwsh-native-host/NativeHost/bin/Release/net5.0", HOSTFXR_MAX_PATH);
+    snprintf(host_assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", host_base_path, "NativeHost");
+
+    call_pwsh_sdk(&hostfxr, host_assembly_path);
+
+    return true;
+}
+
 int main(int argc, char** argv)
 {
-    run_sample();
+    //run_sample();
     //run_pwsh_app();
+    run_pwsh_lib();
 
     return 0;
 }
