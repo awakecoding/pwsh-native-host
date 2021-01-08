@@ -15,6 +15,7 @@
 
 #include <nethost.h>
 
+#include <coreclrhost.h>
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
 
@@ -89,6 +90,42 @@ void linker_dummy()
 }
 #endif
 
+struct coreclr_context
+{
+    coreclr_initialize_fn initialize;
+    coreclr_shutdown_fn shutdown;
+    coreclr_shutdown_2_fn shutdown_2;
+    coreclr_create_delegate_fn create_delegate;
+    coreclr_execute_assembly_fn execute_assembly;
+};
+typedef struct coreclr_context CORECLR_CONTEXT;
+
+bool load_coreclr(CORECLR_CONTEXT* coreclr, const char* coreclr_path)
+{
+    void* lib_handle = load_library(coreclr_path);
+
+    memset(coreclr, 0, sizeof(CORECLR_CONTEXT));
+
+    if (!lib_handle) {
+        printf("could not load %s\n", coreclr_path);
+    }
+
+    coreclr->initialize = (coreclr_initialize_fn) get_proc_address(lib_handle, "coreclr_initialize");
+    coreclr->shutdown = (coreclr_shutdown_fn) get_proc_address(lib_handle, "coreclr_shutdown");
+    coreclr->shutdown_2 = (coreclr_shutdown_2_fn) get_proc_address(lib_handle, "coreclr_shutdown_2");
+    coreclr->create_delegate = (coreclr_create_delegate_fn) get_proc_address(lib_handle, "coreclr_create_delegate");
+    coreclr->execute_assembly = (coreclr_execute_assembly_fn) get_proc_address(lib_handle, "coreclr_execute_assembly");
+
+    if (!coreclr->initialize || !coreclr->shutdown || !coreclr->shutdown_2 ||
+        !coreclr->create_delegate || !coreclr->execute_assembly)
+    {
+        printf("could not load CoreCLR functions\n");
+        return false;
+    }
+
+    return true;
+}
+
 struct hostfxr_context
 {
     hostfxr_initialize_for_dotnet_command_line_fn initialize_for_dotnet_command_line;
@@ -109,6 +146,8 @@ typedef struct hostfxr_context HOSTFXR_CONTEXT;
 bool load_hostfxr(HOSTFXR_CONTEXT* hostfxr, const char* hostfxr_path)
 {
     void* lib_handle = load_library(hostfxr_path);
+
+    memset(hostfxr, 0, sizeof(HOSTFXR_CONTEXT));
 
     if (!lib_handle) {
         printf("could not load %s\n", hostfxr_path);
@@ -389,17 +428,25 @@ bool run_pwsh_app()
 bool run_pwsh_lib()
 {
     HOSTFXR_CONTEXT hostfxr;
+    CORECLR_CONTEXT coreclr;
     char base_path[HOSTFXR_MAX_PATH];
     char hostfxr_path[HOSTFXR_MAX_PATH];
+    char coreclr_path[HOSTFXR_MAX_PATH];
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
 
     strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
     strncpy(base_path, "/opt/microsoft/powershell/7", HOSTFXR_MAX_PATH);
     snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
+    snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s/libcoreclr.so", base_path);
 
     if (!load_hostfxr(&hostfxr, hostfxr_path)) {
         printf("failed to load hostfxr!\n");
+        return false;
+    }
+
+    if (!load_coreclr(&coreclr, coreclr_path)) {
+        printf("failed to load coreclr!\n");
         return false;
     }
 
