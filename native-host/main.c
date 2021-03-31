@@ -207,27 +207,29 @@ typedef void (CORECLR_DELEGATE_CALLTYPE * fnLoadAssemblyFile)(const char* filena
 static fnLoadAssemblyData g_LoadAssemblyData = NULL;
 static fnLoadAssemblyFile g_LoadAssemblyFile = NULL;
 
-bool load_assembly_helper(HOSTFXR_CONTEXT* hostfxr, const char* helper_path)
+bool load_assembly_helper(HOSTFXR_CONTEXT* hostfxr, const char* helper_path, const char* type_name)
 {
     int rc;
 
     rc =  hostfxr->load_assembly_and_get_function_pointer(helper_path,
-        "NativeHelper.Bindings, NativeHelper", "LoadAssemblyData",
+        type_name, "LoadAssemblyFromMemory",
         UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyData);
 
     if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer(LoadAssemblyData): 0x%08X\n", rc);
+        printf("load_assembly_and_get_function_pointer(LoadAssemblyFromMemory): 0x%08X\n", rc);
         return false;
     }
 
+#if 0
     rc = hostfxr->load_assembly_and_get_function_pointer(helper_path,
-        "NativeHelper.Bindings, NativeHelper", "LoadAssemblyFile",
+        type_name, "LoadAssemblyFile",
         UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyFile);
 
     if (rc != 0) {
         printf("load_assembly_and_get_function_pointer(LoadAssemblyFile): 0x%08X\n", rc);
         return false;
     }
+#endif
 
     return true;
 }
@@ -437,6 +439,7 @@ bool run_pwsh_lib()
 
     strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
     strncpy(base_path, "/opt/microsoft/powershell/7", HOSTFXR_MAX_PATH);
+    strncpy(base_path, "/opt/wayk/dev/powershell/src/powershell-unix/bin/Debug/net5.0/linux-x64", HOSTFXR_MAX_PATH);
     snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
     snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s/libcoreclr.so", base_path);
 
@@ -453,6 +456,8 @@ bool run_pwsh_lib()
     snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
     snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
 
+    printf("loading %s\n", runtime_config_path);
+
     char* command_args[] = {
         assembly_path
     };
@@ -466,10 +471,20 @@ bool run_pwsh_lib()
     char helper_base_path[HOSTFXR_MAX_PATH];
     char helper_assembly_path[HOSTFXR_MAX_PATH];
 
-    strncpy(helper_base_path, "/opt/wayk/dev/pwsh-native-host/NativeHelper/bin/Release/net5.0", HOSTFXR_MAX_PATH);
-    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", helper_base_path, "NativeHelper");
+    if (1)
+    {
+        snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/System.Management.Automation.dll", base_path);
+        load_assembly_helper(&hostfxr, helper_assembly_path, "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation");
 
-    load_assembly_helper(&hostfxr, helper_assembly_path);
+        //snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/Microsoft.PowerShell.ConsoleHost.dll", base_path);
+        //load_assembly_helper(&hostfxr, helper_assembly_path, "Microsoft.PowerShell.NativeHost, Microsoft.PowerShell.ConsoleHost");
+    }
+    else
+    {
+        strncpy(helper_base_path, "/opt/wayk/dev/pwsh-native-host/NativeHelper/bin/Release/net5.0", HOSTFXR_MAX_PATH);
+        snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", helper_base_path, "NativeHelper");
+        load_assembly_helper(&hostfxr, helper_assembly_path, "NativeHelper.Bindings, NativeHelper");
+    }
 
     char host_base_path[HOSTFXR_MAX_PATH];
     char host_assembly_path[HOSTFXR_MAX_PATH];
