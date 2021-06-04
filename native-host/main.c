@@ -21,6 +21,41 @@
 
 #define HOSTFXR_MAX_PATH    1024
 
+static char g_PWSH_BASE_PATH[HOSTFXR_MAX_PATH];
+static char g_PWSH_HOST_DLL[HOSTFXR_MAX_PATH];
+
+int get_env(const char* name, char* value, int cch)
+{
+	int status;
+
+	int len;
+	char* env;
+
+	env = getenv(name);
+
+	if (!env)
+		return -1;
+
+	len = strlen(name);
+
+	if (len < 1)
+		return -1;
+
+	status = len + 1;
+
+	if (value && (cch > 0))
+	{
+		if (cch >= (len + 1))
+		{
+			strncpy(value, env, cch);
+			value[cch - 1] = '\0';
+			status = len;
+		}
+	}
+
+	return status;
+}
+
 static void* load_library(const char* path)
 {
 #ifdef _WIN32
@@ -201,35 +236,22 @@ bool load_runtime(HOSTFXR_CONTEXT* hostfxr, const char* config_path)
     return true;
 }
 
-typedef void (CORECLR_DELEGATE_CALLTYPE * fnLoadAssemblyData)(uint8_t* bytes, int32_t size);
-typedef void (CORECLR_DELEGATE_CALLTYPE * fnLoadAssemblyFile)(const char* filename);
+typedef int32_t (CORECLR_DELEGATE_CALLTYPE * fnLoadAssemblyFromNativeMemory)(uint8_t* bytes, int32_t size);
 
-static fnLoadAssemblyData g_LoadAssemblyData = NULL;
-static fnLoadAssemblyFile g_LoadAssemblyFile = NULL;
+static fnLoadAssemblyFromNativeMemory g_LoadAssemblyFromNativeMemory = NULL;
 
 bool load_assembly_helper(HOSTFXR_CONTEXT* hostfxr, const char* helper_path, const char* type_name)
 {
     int rc;
 
     rc =  hostfxr->load_assembly_and_get_function_pointer(helper_path,
-        type_name, "LoadAssemblyFromMemory",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyData);
+        type_name, "LoadAssemblyFromNativeMemory",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyFromNativeMemory);
 
     if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer(LoadAssemblyFromMemory): 0x%08X\n", rc);
+        printf("load_assembly_and_get_function_pointer(LoadAssemblyFromNativeMemory): 0x%08X\n", rc);
         return false;
     }
-
-#if 0
-    rc = hostfxr->load_assembly_and_get_function_pointer(helper_path,
-        type_name, "LoadAssemblyFile",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyFile);
-
-    if (rc != 0) {
-        printf("load_assembly_and_get_function_pointer(LoadAssemblyFile): 0x%08X\n", rc);
-        return false;
-    }
-#endif
 
     return true;
 }
@@ -249,61 +271,39 @@ typedef struct
 bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerShell* iface)
 {
     int rc;
+    size_t assembly_size = 0;
+    uint8_t* assembly_data = NULL;
+
     memset(iface, 0, sizeof(iPowerShell));
 
-    if (0)
-    {
-         hostfxr->load_assembly_and_get_function_pointer(assembly_path,
-            "NativeHost.Bindings, NativeHost", "PowerShell_Create",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface->Create);
-
-        if (rc != 0) {
-            printf("load_assembly_and_get_function_pointer: 0x%08X\n", rc);
-            return false;
-        }
-
-        hostfxr->load_assembly_and_get_function_pointer(assembly_path,
-            "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface->AddScript);
-
-        hostfxr->load_assembly_and_get_function_pointer(assembly_path,
-            "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &iface->Invoke);   
+    assembly_data = load_file(assembly_path, &assembly_size);
+    
+    if (!assembly_data) {
+        printf("couldn't load %s\n", assembly_path);
+        return false;
     }
-    else
-    {
-        uint8_t* assembly_data = NULL;
-        size_t assembly_size = 0;
 
-        assembly_data = load_file(assembly_path, &assembly_size);
-        
-        if (!assembly_data) {
-            printf("couldn't load %s\n", assembly_path);
-            return false;
-        }
+    printf("loaded %s (%d bytes)\n", assembly_path, (int) assembly_size);
 
-        printf("loaded %s (%d bytes)\n", assembly_path, (int) assembly_size);
+    g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
+    free(assembly_data);
 
-        g_LoadAssemblyData(assembly_data, (int32_t) assembly_size);
-        free(assembly_data);
+    rc = hostfxr->get_function_pointer(
+        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Create);
 
-        rc = hostfxr->get_function_pointer(
-            "NativeHost.Bindings, NativeHost", "PowerShell_Create",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Create);
-
-        if (rc != 0) {
-            printf("get_function_pointer failure: 0x%08X\n", rc);
-            return false;
-        }
-
-        rc = hostfxr->get_function_pointer(
-            "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->AddScript);
-
-        rc = hostfxr->get_function_pointer(
-            "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
-            UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Invoke);
+    if (rc != 0) {
+        printf("get_function_pointer failure: 0x%08X\n", rc);
+        return false;
     }
+
+    rc = hostfxr->get_function_pointer(
+        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->AddScript);
+
+    rc = hostfxr->get_function_pointer(
+        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
+        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Invoke);
 
     return true;
 }
@@ -322,33 +322,7 @@ bool call_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path)
     return true;
 }
 
-bool run_sample()
-{
-    HOSTFXR_CONTEXT hostfxr;
-    char base_path[HOSTFXR_MAX_PATH];
-    char runtime_config_path[HOSTFXR_MAX_PATH];
-    char assembly_path[HOSTFXR_MAX_PATH];
-
-    const char* hostfxr_path = "/usr/share/dotnet/host/fxr/5.0.0/libhostfxr.so";
-
-    if (!load_hostfxr(&hostfxr, hostfxr_path)) {
-        printf("failed to load hostfxr!\n");
-        return -1;
-    }
-
-    strncpy(base_path, "/opt/wayk/dev/pwsh-native-host/NativeHost/bin/Release/net5.0", HOSTFXR_MAX_PATH);
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "NativeHost");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "NativeHost");
-
-    if (!load_runtime(&hostfxr, runtime_config_path)) {
-        printf("failed to load runtime!\n");
-        return -1;
-    }
-
-    call_pwsh_sdk(&hostfxr, assembly_path);
-}
-
-bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
+bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv, bool close_handle)
 {
     hostfxr_handle ctx = NULL;
     load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer = NULL;
@@ -380,7 +354,10 @@ bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv)
     }
 
     hostfxr->context_handle = ctx;
-    //hostfxr->close(ctx);
+
+    if (close_handle) {
+        hostfxr->close(ctx);
+    }
 
     hostfxr->load_assembly_and_get_function_pointer = load_assembly_and_get_function_pointer;
     hostfxr->get_function_pointer = get_function_pointer;
@@ -396,8 +373,7 @@ bool run_pwsh_app()
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
 
-    strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
-    strncpy(base_path, "/opt/microsoft/powershell/7", HOSTFXR_MAX_PATH);
+    strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
     snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
 
     if (!load_hostfxr(&hostfxr, hostfxr_path)) {
@@ -417,7 +393,7 @@ bool run_pwsh_app()
     };
     int command_argc = sizeof(command_args) / sizeof(char*);
 
-    if (!load_command(&hostfxr, command_argc, (const char**) command_args)) {
+    if (!load_command(&hostfxr, command_argc, (const char**) command_args, false)) {
         printf("failed to load runtime!\n");
         return false;
     }
@@ -437,9 +413,7 @@ bool run_pwsh_lib()
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
 
-    strncpy(base_path, "/home/wayk/powershell-7.1.0", HOSTFXR_MAX_PATH);
-    strncpy(base_path, "/opt/microsoft/powershell/7", HOSTFXR_MAX_PATH);
-    strncpy(base_path, "/opt/wayk/dev/powershell/src/powershell-unix/bin/Debug/net5.0/linux-x64", HOSTFXR_MAX_PATH);
+    strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
     snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
     snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s/libcoreclr.so", base_path);
 
@@ -463,7 +437,7 @@ bool run_pwsh_lib()
     };
     int command_argc = sizeof(command_args) / sizeof(char*);
 
-    if (!load_command(&hostfxr, command_argc, (const char**) command_args)) {
+    if (!load_command(&hostfxr, command_argc, (const char**) command_args, true)) {
         printf("failed to load runtime!\n");
         return false;
     }
@@ -471,26 +445,13 @@ bool run_pwsh_lib()
     char helper_base_path[HOSTFXR_MAX_PATH];
     char helper_assembly_path[HOSTFXR_MAX_PATH];
 
-    if (1)
-    {
-        snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/System.Management.Automation.dll", base_path);
-        load_assembly_helper(&hostfxr, helper_assembly_path, "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation");
+    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/System.Management.Automation.dll", base_path);
+    load_assembly_helper(&hostfxr, helper_assembly_path,
+        "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation");
 
-        //snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/Microsoft.PowerShell.ConsoleHost.dll", base_path);
-        //load_assembly_helper(&hostfxr, helper_assembly_path, "Microsoft.PowerShell.NativeHost, Microsoft.PowerShell.ConsoleHost");
-    }
-    else
-    {
-        strncpy(helper_base_path, "/opt/wayk/dev/pwsh-native-host/NativeHelper/bin/Release/net5.0", HOSTFXR_MAX_PATH);
-        snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", helper_base_path, "NativeHelper");
-        load_assembly_helper(&hostfxr, helper_assembly_path, "NativeHelper.Bindings, NativeHelper");
-    }
-
-    char host_base_path[HOSTFXR_MAX_PATH];
     char host_assembly_path[HOSTFXR_MAX_PATH];
 
-    strncpy(host_base_path, "/opt/wayk/dev/pwsh-native-host/NativeHost/bin/Release/net5.0", HOSTFXR_MAX_PATH);
-    snprintf(host_assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", host_base_path, "NativeHost");
+    strncpy(host_assembly_path, g_PWSH_HOST_DLL, HOSTFXR_MAX_PATH);
 
     call_pwsh_sdk(&hostfxr, host_assembly_path);
 
@@ -499,9 +460,23 @@ bool run_pwsh_lib()
 
 int main(int argc, char** argv)
 {
-    //run_sample();
-    //run_pwsh_app();
-    run_pwsh_lib();
+    if (get_env("PWSH_BASE_PATH", g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH) < 1) {
+        printf("Set PWSH_BASE_PATH environment variable to point to PowerShell installation path\n");
+        return -1;
+    }
+
+    if (get_env("PWSH_HOST_DLL", g_PWSH_HOST_DLL, HOSTFXR_MAX_PATH) < 1) {
+        printf("Set PWSH_HOST_DLL environment variable to point to NativeHost.dll bindings\n");
+        return -1;
+    }
+
+    if (argc > 1) {
+        if (!strcmp(argv[1], "app")) {
+            run_pwsh_app();
+        } else if (!strcmp(argv[1], "lib")) {
+            run_pwsh_lib();
+        }
+    }
 
     return 0;
 }
