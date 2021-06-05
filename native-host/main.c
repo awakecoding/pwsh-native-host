@@ -19,6 +19,18 @@
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
 
+#ifdef _WIN32
+#define PATH_SEPARATOR_CHR  '\\'
+#define PATH_SEPARATOR_STR  "\\"
+#define HOSTFXR_LIB_NAME "hostfxr.dll"
+#define CORECLR_LIB_NAME "coreclr.dll"
+#else
+#define PATH_SEPARATOR_CHR  '/'
+#define PATH_SEPARATOR_STR  "//"
+#define HOSTFXR_LIB_NAME "libhostfxr.so"
+#define CORECLR_LIB_NAME "libcoreclr.so"
+#endif
+
 #define HOSTFXR_MAX_PATH    1024
 
 static char g_PWSH_BASE_PATH[HOSTFXR_MAX_PATH];
@@ -36,7 +48,7 @@ int get_env(const char* name, char* value, int cch)
 	if (!env)
 		return -1;
 
-	len = strlen(name);
+	len = (int) strlen(name);
 
 	if (len < 1)
 		return -1;
@@ -98,7 +110,7 @@ static uint8_t* load_file(const char* filename, size_t* size)
 	*size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
-	data = malloc(*size);
+	data = malloc(*size + 1);
 
 	if (!data)
 		goto exit;
@@ -108,7 +120,10 @@ static uint8_t* load_file(const char* filename, size_t* size)
 		free(data);
 		data = NULL;
 		*size = 0;
+        goto exit;
 	}
+
+    data[*size] = '\0';
 
 exit:
 	fclose(fp);
@@ -125,6 +140,20 @@ void linker_dummy()
 }
 #endif
 
+#ifdef _WIN32
+WCHAR* convert_string_to_utf16(const char* lpMultiByteStr)
+{
+    if (!lpMultiByteStr)
+        return NULL;
+
+    int cchWideChar = MultiByteToWideChar(CP_UTF8, 0, lpMultiByteStr, -1, NULL, 0);
+    WCHAR* lpWideCharStr = (LPWSTR) calloc(cchWideChar + 1, sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, lpMultiByteStr, -1, lpWideCharStr, cchWideChar);
+
+    return lpWideCharStr;
+}
+#endif
+
 struct coreclr_context
 {
     coreclr_initialize_fn initialize;
@@ -134,6 +163,8 @@ struct coreclr_context
     coreclr_execute_assembly_fn execute_assembly;
 };
 typedef struct coreclr_context CORECLR_CONTEXT;
+
+static CORECLR_CONTEXT g_CORECLR_CONTEXT;
 
 bool load_coreclr(CORECLR_CONTEXT* coreclr, const char* coreclr_path)
 {
@@ -178,6 +209,190 @@ struct hostfxr_context
 };
 typedef struct hostfxr_context HOSTFXR_CONTEXT;
 
+static HOSTFXR_CONTEXT g_HOSTFXR_CONTEXT;
+
+struct hostfxr_init_params
+{
+    size_t size;
+    const char* host_path;
+    const char* dotnet_root;
+};
+typedef struct hostfxr_init_params HOSTFXR_INIT_PARAMS;
+
+static int32_t hostfxr_initialize_for_dotnet_command_line(int argc, const char** argv,
+    const HOSTFXR_INIT_PARAMS* params, hostfxr_handle* host_context_handle)
+{
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
+#ifdef _WIN32
+    int32_t status;
+    int32_t index;
+    WCHAR** argv_w = NULL;
+    struct hostfxr_initialize_parameters params_w;
+    struct hostfxr_initialize_parameters* p_params = NULL;
+
+    if (params) {
+        params_w.size = sizeof(params_w);
+        params_w.host_path = convert_string_to_utf16(params->host_path);
+        params_w.dotnet_root = convert_string_to_utf16(params->dotnet_root);
+        p_params = &params_w;
+    }
+
+    argv_w = (WCHAR**) calloc(argc, sizeof(WCHAR*));
+
+    if (!argv_w)
+            return -1;
+
+    for (index = 0; index < argc; index++) {
+        argv_w[index] = convert_string_to_utf16(argv[index]);
+    }
+
+    status = hostfxr->initialize_for_dotnet_command_line(argc, argv_w, p_params, host_context_handle);
+
+    for (index = 0; index < argc; index++) {
+        free(argv_w[index]);
+    }
+    free(argv_w);
+
+    if (params) {
+        free((void*) params_w.host_path);
+        free((void*) params_w.dotnet_root);
+    }
+
+    return status;
+#else
+    return hostfxr->initialize_for_dotnet_command_line(argc, argv,
+        (const struct hostfxr_initialize_parameters*) params, host_context_handle);
+#endif
+}
+
+int32_t hostfxr_initialize_for_runtime_config(const char* runtime_config_path,
+    const HOSTFXR_INIT_PARAMS* params, hostfxr_handle* host_context_handle)
+{
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
+#ifdef _WIN32
+    int32_t status;
+    WCHAR* runtime_config_path_w = NULL;
+    struct hostfxr_initialize_parameters params_w;
+    struct hostfxr_initialize_parameters* p_params = NULL;
+
+    runtime_config_path_w = convert_string_to_utf16(runtime_config_path);
+
+    if (params) {
+        params_w.size = sizeof(params_w);
+        params_w.host_path = convert_string_to_utf16(params->host_path);
+        params_w.dotnet_root = convert_string_to_utf16(params->dotnet_root);
+        p_params = &params_w;
+    }
+
+    status = hostfxr->initialize_for_runtime_config(runtime_config_path_w, p_params, host_context_handle);
+
+    if (params) {
+        free((void*) params_w.host_path);
+        free((void*) params_w.dotnet_root);
+    }
+
+    free(runtime_config_path_w);
+
+    return status;
+#else
+    return hostfxr->initialize_for_runtime_config(runtime_config_path,
+        (const struct hostfxr_initialize_parameters*) params, host_context_handle);
+#endif
+}
+
+#define UNMANAGEDCALLERSONLY_METHOD_A ((const char*)-1)
+
+int32_t hostfxr_load_assembly_and_get_function_pointer(const char* assembly_path,
+    const char* type_name, const char* method_name, const char* delegate_type_name,
+    void* reserved, void** delegate)
+{
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
+#ifdef _WIN32
+    int32_t status;
+    const WCHAR* assembly_path_w;
+    const WCHAR* type_name_w;
+    const WCHAR* method_name_w;
+    const WCHAR* delegate_type_name_w;
+
+    assembly_path_w = convert_string_to_utf16(assembly_path);
+    type_name_w = convert_string_to_utf16(type_name);
+    method_name_w = convert_string_to_utf16(method_name);
+
+    if (delegate_type_name != UNMANAGEDCALLERSONLY_METHOD_A) {
+            delegate_type_name_w = convert_string_to_utf16(delegate_type_name);
+    }
+    else {
+            delegate_type_name_w = UNMANAGEDCALLERSONLY_METHOD;
+    }
+
+    status = hostfxr->load_assembly_and_get_function_pointer(assembly_path_w,
+        type_name_w, method_name_w, delegate_type_name_w,
+        reserved, delegate);
+
+    free((void*) assembly_path_w);
+    free((void*) type_name_w);
+    free((void*) method_name_w);
+
+    if (delegate_type_name != UNMANAGEDCALLERSONLY_METHOD_A)
+        free((void*) delegate_type_name_w);
+
+    return status;
+#else
+    return hostfxr->load_assembly_and_get_function_pointer(assembly_path,
+        type_name, method_name, delegate_type_name,
+        reserved, delegate);
+#endif
+}
+
+int32_t hostfxr_get_function_pointer(const char* type_name,
+    const char* method_name, const char* delegate_type_name,
+    void* load_context, void* reserved, void** delegate)
+{
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
+#ifdef _WIN32
+    int32_t status;
+    const WCHAR* type_name_w;
+    const WCHAR* method_name_w;
+    const WCHAR* delegate_type_name_w;
+
+    type_name_w = convert_string_to_utf16(type_name);
+    method_name_w = convert_string_to_utf16(method_name);
+
+    if (delegate_type_name != UNMANAGEDCALLERSONLY_METHOD_A) {
+            delegate_type_name_w = convert_string_to_utf16(delegate_type_name);
+    }
+    else {
+            delegate_type_name_w = UNMANAGEDCALLERSONLY_METHOD;
+    }
+
+    status = hostfxr->get_function_pointer(type_name_w,
+        method_name_w, delegate_type_name_w,
+        load_context, reserved, delegate);
+
+    free((void*) type_name_w);
+    free((void*) method_name_w);
+
+    if (delegate_type_name != UNMANAGEDCALLERSONLY_METHOD_A)
+        free((void*) delegate_type_name_w);
+
+    return status;
+#else
+    return hostfxr->get_function_pointer(type_name,
+        method_name, delegate_type_name,
+        load_context, reserved, delegate);
+#endif
+}
+
+typedef int (CORECLR_DELEGATE_CALLTYPE *get_function_pointer_fn)(
+    const char_t *type_name          /* Assembly qualified type name */,
+    const char_t *method_name        /* Public static method name compatible with delegateType */,
+    const char_t *delegate_type_name /* Assembly qualified delegate type name or null,
+                                        or UNMANAGEDCALLERSONLY_METHOD if the method is marked with
+                                        the UnmanagedCallersOnlyAttribute. */,
+    void         *load_context       /* Extensibility parameter (currently unused and must be 0) */,
+    void         *reserved           /* Extensibility parameter (currently unused and must be 0) */,
+    /*out*/ void **delegate          /* Pointer where to store the function pointer result */);
+
 bool load_hostfxr(HOSTFXR_CONTEXT* hostfxr, const char* hostfxr_path)
 {
     void* lib_handle = load_library(hostfxr_path);
@@ -213,7 +428,7 @@ bool load_runtime(HOSTFXR_CONTEXT* hostfxr, const char* config_path)
     hostfxr_handle ctx = NULL;
     load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer = NULL;
 
-    int rc = hostfxr->initialize_for_runtime_config(config_path, NULL, &ctx);
+    int rc = hostfxr_initialize_for_runtime_config(config_path, NULL, &ctx);
 
     if ((rc != 0) || (ctx == NULL)) {
         printf("initialize_for_runtime_config(%s) failure\n", config_path);
@@ -244,9 +459,9 @@ bool load_assembly_helper(HOSTFXR_CONTEXT* hostfxr, const char* helper_path, con
 {
     int rc;
 
-    rc =  hostfxr->load_assembly_and_get_function_pointer(helper_path,
+    rc =  hostfxr_load_assembly_and_get_function_pointer(helper_path,
         type_name, "LoadAssemblyFromNativeMemory",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, (void**) &g_LoadAssemblyFromNativeMemory);
+        UNMANAGEDCALLERSONLY_METHOD_A, NULL, (void**) &g_LoadAssemblyFromNativeMemory);
 
     if (rc != 0) {
         printf("load_assembly_and_get_function_pointer(LoadAssemblyFromNativeMemory): 0x%08X\n", rc);
@@ -288,22 +503,22 @@ bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerSh
     g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
     free(assembly_data);
 
-    rc = hostfxr->get_function_pointer(
+    rc = hostfxr_get_function_pointer(
         "NativeHost.Bindings, NativeHost", "PowerShell_Create",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Create);
+        UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Create);
 
     if (rc != 0) {
         printf("get_function_pointer failure: 0x%08X\n", rc);
         return false;
     }
 
-    rc = hostfxr->get_function_pointer(
+    rc = hostfxr_get_function_pointer(
         "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->AddScript);
+        UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->AddScript);
 
-    rc = hostfxr->get_function_pointer(
+    rc = hostfxr_get_function_pointer(
         "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
-        UNMANAGEDCALLERSONLY_METHOD, NULL, NULL, (void**) &iface->Invoke);
+        UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Invoke);
 
     return true;
 }
@@ -315,8 +530,8 @@ bool call_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path)
     load_pwsh_sdk(hostfxr, assembly_path, &iface);
 
     hPowerShell handle = iface.Create();
-    iface.AddScript(handle, "Set-Content -Path '/tmp/pwsh-date.txt' -Value \"Microsoft.PowerShell.SDK: $(Get-Date)\"");
-    iface.AddScript(handle, "$(lsof -p $PID | grep dll) > /tmp/pwsh-lsof.txt");
+    iface.AddScript(handle, "$TempPath = [System.IO.Path]::GetTempPath();");
+    iface.AddScript(handle, "Set-Content -Path $(Join-Path $TempPath pwsh-date.txt) -Value \"Microsoft.PowerShell.SDK: $(Get-Date)\"");
     iface.Invoke(handle);
 
     return true;
@@ -328,7 +543,7 @@ bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv, bool cl
     load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer = NULL;
     get_function_pointer_fn get_function_pointer = NULL;
 
-    int rc = hostfxr->initialize_for_dotnet_command_line(argc, argv, NULL, &ctx);
+    int rc = hostfxr_initialize_for_dotnet_command_line(argc, argv, NULL, &ctx);
 
     if ((rc != 0) || (ctx == NULL)) {
         printf("hostfxr->initialize_for_dotnet_command_line() failure: 0x%08X\n", rc);
@@ -367,22 +582,23 @@ bool load_command(HOSTFXR_CONTEXT* hostfxr, int argc, const char** argv, bool cl
 
 bool run_pwsh_app()
 {
-    HOSTFXR_CONTEXT hostfxr;
     char base_path[HOSTFXR_MAX_PATH];
     char hostfxr_path[HOSTFXR_MAX_PATH];
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
 
     strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
-    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
+    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, HOSTFXR_LIB_NAME);
 
-    if (!load_hostfxr(&hostfxr, hostfxr_path)) {
+    if (!load_hostfxr(hostfxr, hostfxr_path)) {
         printf("failed to load hostfxr!\n");
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json",
+        base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     char* command_args[] = {
         assembly_path,
@@ -393,42 +609,42 @@ bool run_pwsh_app()
     };
     int command_argc = sizeof(command_args) / sizeof(char*);
 
-    if (!load_command(&hostfxr, command_argc, (const char**) command_args, false)) {
+    if (!load_command(hostfxr, command_argc, (const char**) command_args, false)) {
         printf("failed to load runtime!\n");
         return false;
     }
 
-    hostfxr.run_app(hostfxr.context_handle);
+    hostfxr->run_app(hostfxr->context_handle);
 
     return true;
 }
 
 bool run_pwsh_lib()
 {
-    HOSTFXR_CONTEXT hostfxr;
-    CORECLR_CONTEXT coreclr;
     char base_path[HOSTFXR_MAX_PATH];
     char hostfxr_path[HOSTFXR_MAX_PATH];
     char coreclr_path[HOSTFXR_MAX_PATH];
     char runtime_config_path[HOSTFXR_MAX_PATH];
     char assembly_path[HOSTFXR_MAX_PATH];
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
+    CORECLR_CONTEXT* coreclr = &g_CORECLR_CONTEXT;
 
     strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
-    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
-    snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s/libcoreclr.so", base_path);
+    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, HOSTFXR_LIB_NAME);
+    snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, CORECLR_LIB_NAME);
 
-    if (!load_hostfxr(&hostfxr, hostfxr_path)) {
+    if (!load_hostfxr(hostfxr, hostfxr_path)) {
         printf("failed to load hostfxr!\n");
         return false;
     }
 
-    if (!load_coreclr(&coreclr, coreclr_path)) {
+    if (!load_coreclr(coreclr, coreclr_path)) {
         printf("failed to load coreclr!\n");
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json", base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     printf("loading %s\n", runtime_config_path);
 
@@ -437,23 +653,23 @@ bool run_pwsh_lib()
     };
     int command_argc = sizeof(command_args) / sizeof(char*);
 
-    if (!load_command(&hostfxr, command_argc, (const char**) command_args, true)) {
+    if (!load_command(hostfxr, command_argc, (const char**) command_args, false)) {
         printf("failed to load runtime!\n");
         return false;
     }
 
-    char helper_base_path[HOSTFXR_MAX_PATH];
     char helper_assembly_path[HOSTFXR_MAX_PATH];
 
-    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/System.Management.Automation.dll", base_path);
-    load_assembly_helper(&hostfxr, helper_assembly_path,
-        "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation");
+    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s%sSystem.Management.Automation.dll", base_path, PATH_SEPARATOR_STR);
+    if (!load_assembly_helper(hostfxr, helper_assembly_path,
+            "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation")) {
+        printf("failed to load PowerShellUnsafeAssemblyLoad helper function!\n");
+        return false;
+    }
 
     char host_assembly_path[HOSTFXR_MAX_PATH];
-
     strncpy(host_assembly_path, g_PWSH_HOST_DLL, HOSTFXR_MAX_PATH);
-
-    call_pwsh_sdk(&hostfxr, host_assembly_path);
+    call_pwsh_sdk(hostfxr, host_assembly_path);
 
     return true;
 }
