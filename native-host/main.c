@@ -19,6 +19,18 @@
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
 
+#ifdef _WIN32
+#define PATH_SEPARATOR_CHR  '\\'
+#define PATH_SEPARATOR_STR  "\\"
+#define HOSTFXR_LIB_NAME "hostfxr.dll"
+#define CORECLR_LIB_NAME "coreclr.dll"
+#else
+#define PATH_SEPARATOR_CHR  '/'
+#define PATH_SEPARATOR_STR  "//"
+#define HOSTFXR_LIB_NAME "libhostfxr.so"
+#define CORECLR_LIB_NAME "libcoreclr.so"
+#endif
+
 #define HOSTFXR_MAX_PATH    1024
 
 static char g_PWSH_BASE_PATH[HOSTFXR_MAX_PATH];
@@ -36,7 +48,7 @@ int get_env(const char* name, char* value, int cch)
 	if (!env)
 		return -1;
 
-	len = strlen(name);
+	len = (int) strlen(name);
 
 	if (len < 1)
 		return -1;
@@ -374,15 +386,16 @@ bool run_pwsh_app()
     char assembly_path[HOSTFXR_MAX_PATH];
 
     strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
-    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
+    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, HOSTFXR_LIB_NAME);
 
     if (!load_hostfxr(&hostfxr, hostfxr_path)) {
         printf("failed to load hostfxr!\n");
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json",
+        base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     char* command_args[] = {
         assembly_path,
@@ -414,8 +427,8 @@ bool run_pwsh_lib()
     char assembly_path[HOSTFXR_MAX_PATH];
 
     strncpy(base_path, g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH);
-    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s/libhostfxr.so", base_path);
-    snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s/libcoreclr.so", base_path);
+    snprintf(hostfxr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, HOSTFXR_LIB_NAME);
+    snprintf(coreclr_path, HOSTFXR_MAX_PATH, "%s%s%s", base_path, PATH_SEPARATOR_STR, CORECLR_LIB_NAME);
 
     if (!load_hostfxr(&hostfxr, hostfxr_path)) {
         printf("failed to load hostfxr!\n");
@@ -427,8 +440,8 @@ bool run_pwsh_lib()
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s/%s.runtimeconfig.json", base_path, "pwsh");
-    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s/%s.dll", base_path, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json", base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     printf("loading %s\n", runtime_config_path);
 
@@ -442,10 +455,9 @@ bool run_pwsh_lib()
         return false;
     }
 
-    char helper_base_path[HOSTFXR_MAX_PATH];
     char helper_assembly_path[HOSTFXR_MAX_PATH];
 
-    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s/System.Management.Automation.dll", base_path);
+    snprintf(helper_assembly_path, HOSTFXR_MAX_PATH, "%s%sSystem.Management.Automation.dll", base_path, PATH_SEPARATOR_STR);
     load_assembly_helper(&hostfxr, helper_assembly_path,
         "System.Management.Automation.PowerShellUnsafeAssemblyLoad, System.Management.Automation");
 

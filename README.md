@@ -5,6 +5,7 @@
 Install [PowerShell 7.2.0-preview6 or later](https://github.com/PowerShell/PowerShell/releases) for the required `LoadAssemblyFromNativeMemory` function, then export the PowerShell base installation path:
 
 ```
+$Env:PWSH_BASE_PATH="${Env:ProgramFiles}\PowerShell\7-preview"
 $Env:PWSH_BASE_PATH="/opt/microsoft/powershell/7-preview"
 ```
 
@@ -24,6 +25,12 @@ cmake .
 cmake --build .
 ```
 
+```
+cd native-host
+cmake -G "Visual Studio 16 2019" -A x64 .
+cmake --build . --config Release
+```
+
 Run the sample program in application and library mode:
 
 ```
@@ -41,6 +48,7 @@ The library native host loads the PowerShell SDK APIs and calls a few functions 
  * https://docs.microsoft.com/en-us/dotnet/core/tutorials/netcore-hosting
  * https://github.com/dotnet/runtime/blob/master/docs/design/features/native-hosting.md
  * https://github.com/dotnet/runtime/blob/master/docs/design/features/host-components.md
+ * https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md
  * https://github.com/dotnet/samples/tree/master/core/hosting
  * https://github.com/dotnet/runtime/tree/master/src/coreclr/hosts
  * https://github.com/dotnet/runtime/tree/master/src/installer/corehost
