@@ -222,11 +222,11 @@ typedef struct hostfxr_init_params HOSTFXR_INIT_PARAMS;
 static int32_t hostfxr_initialize_for_dotnet_command_line(int argc, const char** argv,
     const HOSTFXR_INIT_PARAMS* params, hostfxr_handle* host_context_handle)
 {
+    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
 #ifdef _WIN32
     int32_t status;
     int32_t index;
     WCHAR** argv_w = NULL;
-    HOSTFXR_CONTEXT* hostfxr = &g_HOSTFXR_CONTEXT;
     struct hostfxr_initialize_parameters params_w;
     struct hostfxr_initialize_parameters* p_params = NULL;
 
@@ -260,7 +260,8 @@ static int32_t hostfxr_initialize_for_dotnet_command_line(int argc, const char**
 
     return status;
 #else
-    status = hostfxr->initialize_for_dotnet_command_line(argc, argv, params, host_context_handle);
+    return hostfxr->initialize_for_dotnet_command_line(argc, argv,
+        (const struct hostfxr_initialize_parameters*) params, host_context_handle);
 #endif
 }
 
@@ -294,7 +295,8 @@ int32_t hostfxr_initialize_for_runtime_config(const char* runtime_config_path,
 
     return status;
 #else
-    status = hostfxr->initialize_for_runtime_config(runtime_config_path, params, host_context_handle);
+    return hostfxr->initialize_for_runtime_config(runtime_config_path,
+        (const struct hostfxr_initialize_parameters*) params, host_context_handle);
 #endif
 }
 
