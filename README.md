@@ -9,14 +9,6 @@ $Env:PWSH_BASE_PATH="${Env:ProgramFiles}\PowerShell\7-preview"
 $Env:PWSH_BASE_PATH="/opt/microsoft/powershell/7-preview"
 ```
 
-Build the NativeHost managed DLL containing the bindings:
-
-```
-cd NativeHost
-dotnet build . -c Release
-$Env:PWSH_HOST_DLL = "$PWD/bin/Release/net5.0/NativeHost.dll"
-```
-
 Build the PowerShell native host program:
 
 ```
