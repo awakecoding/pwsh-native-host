@@ -12,22 +12,17 @@ $Env:PWSH_BASE_PATH="/opt/microsoft/powershell/7-preview"
 Build the PowerShell native host program:
 
 ```
-cd native-host
-cmake .
+mkdir build && cd build
+cmake ..
 cmake --build .
-```
-
-```
-cd native-host
-cmake -G "Visual Studio 16 2019" -A x64 .
-cmake --build . --config Release
-```
-
-Run the sample program in application and library mode:
-
-```
 .\native-host app
-.\native-host lib
+```
+
+```
+mkdir build && cd build
+cmake -G "Visual Studio 16 2019" -A x64 ..
+cmake --build . --config Release
+.\Release\native-host.exe lib
 ```
 
 The application native host loads pwsh.exe and launches it with its command-line interface, yet it will not spawn a subprocess: it literally loads the PowerShell application to execute it within the current process. This is useful to avoid leaking sensitive data in command-line parameters.

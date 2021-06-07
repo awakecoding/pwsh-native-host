@@ -595,7 +595,6 @@ bool run_pwsh_app()
     char* command_args[] = {
         assembly_path,
         "-NoLogo",
-        "-NoExit",
         "-Command",
         "Write-Host 'Hello PowerShell Host'"
     };
@@ -664,12 +663,26 @@ bool run_pwsh_lib()
     return true;
 }
 
+bool detect_pwsh()
+{
+    // TODO: proper detect PowerShell installation path
+
+    if (get_env("PWSH_BASE_PATH", g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH) < 1) {
+#ifdef _WIN32
+        strncpy(g_PWSH_BASE_PATH, "C:\\Program Files\\PowerShell\\7-preview", HOSTFXR_MAX_PATH);
+#else
+        strncpy(g_PWSH_BASE_PATH, "/opt/microsoft/powershell/7-preview", HOSTFXR_MAX_PATH);
+#endif
+        printf("Set PWSH_BASE_PATH environment variable to point to PowerShell installation path\n");
+        printf("using hardcoded PowerShell installation path: \"%s\"\n", g_PWSH_BASE_PATH);
+    }
+
+    return true;
+}
+
 int main(int argc, char** argv)
 {
-    if (get_env("PWSH_BASE_PATH", g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH) < 1) {
-        printf("Set PWSH_BASE_PATH environment variable to point to PowerShell installation path\n");
-        return -1;
-    }
+    detect_pwsh();
 
     if (argc > 1) {
         if (!strcmp(argv[1], "app")) {
@@ -677,6 +690,8 @@ int main(int argc, char** argv)
         } else if (!strcmp(argv[1], "lib")) {
             run_pwsh_lib();
         }
+    } else {
+        run_pwsh_app();
     }
 
     return 0;
