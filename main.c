@@ -26,7 +26,7 @@
 #define CORECLR_LIB_NAME "coreclr.dll"
 #else
 #define PATH_SEPARATOR_CHR  '/'
-#define PATH_SEPARATOR_STR  "//"
+#define PATH_SEPARATOR_STR  "/"
 #define HOSTFXR_LIB_NAME "libhostfxr.so"
 #define CORECLR_LIB_NAME "libcoreclr.so"
 #endif
@@ -483,20 +483,25 @@ typedef struct
 } iPowerShell;
 
 extern const unsigned int bindings_size;
-extern const unsigned char bindings_data;
+extern unsigned char bindings_data[];
 
 bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, iPowerShell* iface)
 {
     int rc;
     size_t assembly_size = (size_t) bindings_size;
-    uint8_t* assembly_data = (uint8_t*) bindings_data;
+    uint8_t* assembly_data = (uint8_t*) &bindings_data;
 
     memset(iface, 0, sizeof(iPowerShell));
 
-    g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
+    rc = g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
+
+    if (rc < 0) {
+        printf("LoadAssemblyFromNativeMemory failure: %d\n", rc);
+        return false;
+    }
 
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
+        "NativeHost.Bindings, Bindings", "PowerShell_Create",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Create);
 
     if (rc != 0) {
@@ -505,11 +510,11 @@ bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, iPowerShell* iface)
     }
 
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
+        "NativeHost.Bindings, Bindings", "PowerShell_AddScript",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->AddScript);
 
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
+        "NativeHost.Bindings, Bindings", "PowerShell_Invoke",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Invoke);
 
     return true;
@@ -634,7 +639,8 @@ bool run_pwsh_lib()
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json", base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json",
+        base_path, PATH_SEPARATOR_STR, "pwsh");
     snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     printf("loading %s\n", runtime_config_path);

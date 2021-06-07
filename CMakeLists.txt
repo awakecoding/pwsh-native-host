@@ -25,7 +25,7 @@ if(WIN32)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCC)
-	set(C_FLAGS "${C_FLAGS} -Wformat-truncation=0")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-truncation=0")
 endif()
 
 set(DOTNET_ARGS "build"
