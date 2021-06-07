@@ -26,7 +26,7 @@
 #define CORECLR_LIB_NAME "coreclr.dll"
 #else
 #define PATH_SEPARATOR_CHR  '/'
-#define PATH_SEPARATOR_STR  "//"
+#define PATH_SEPARATOR_STR  "/"
 #define HOSTFXR_LIB_NAME "libhostfxr.so"
 #define CORECLR_LIB_NAME "libcoreclr.so"
 #endif
@@ -34,7 +34,6 @@
 #define HOSTFXR_MAX_PATH    1024
 
 static char g_PWSH_BASE_PATH[HOSTFXR_MAX_PATH];
-static char g_PWSH_HOST_DLL[HOSTFXR_MAX_PATH];
 
 int get_env(const char* name, char* value, int cch)
 {
@@ -483,28 +482,26 @@ typedef struct
     fnPowerShell_Invoke Invoke;
 } iPowerShell;
 
-bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerShell* iface)
+extern const unsigned int bindings_size;
+extern unsigned char bindings_data[];
+
+bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, iPowerShell* iface)
 {
     int rc;
-    size_t assembly_size = 0;
-    uint8_t* assembly_data = NULL;
+    size_t assembly_size = (size_t) bindings_size;
+    uint8_t* assembly_data = (uint8_t*) &bindings_data;
 
     memset(iface, 0, sizeof(iPowerShell));
 
-    assembly_data = load_file(assembly_path, &assembly_size);
-    
-    if (!assembly_data) {
-        printf("couldn't load %s\n", assembly_path);
+    rc = g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
+
+    if (rc < 0) {
+        printf("LoadAssemblyFromNativeMemory failure: %d\n", rc);
         return false;
     }
 
-    printf("loaded %s (%d bytes)\n", assembly_path, (int) assembly_size);
-
-    g_LoadAssemblyFromNativeMemory(assembly_data, (int32_t) assembly_size);
-    free(assembly_data);
-
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_Create",
+        "NativeHost.Bindings, Bindings", "PowerShell_Create",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Create);
 
     if (rc != 0) {
@@ -513,21 +510,21 @@ bool load_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path, iPowerSh
     }
 
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_AddScript",
+        "NativeHost.Bindings, Bindings", "PowerShell_AddScript",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->AddScript);
 
     rc = hostfxr_get_function_pointer(
-        "NativeHost.Bindings, NativeHost", "PowerShell_Invoke",
+        "NativeHost.Bindings, Bindings", "PowerShell_Invoke",
         UNMANAGEDCALLERSONLY_METHOD_A, NULL, NULL, (void**) &iface->Invoke);
 
     return true;
 }
 
-bool call_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr, const char* assembly_path)
+bool call_pwsh_sdk(HOSTFXR_CONTEXT* hostfxr)
 {
     iPowerShell iface;
 
-    load_pwsh_sdk(hostfxr, assembly_path, &iface);
+    load_pwsh_sdk(hostfxr, &iface);
 
     hPowerShell handle = iface.Create();
     iface.AddScript(handle, "$TempPath = [System.IO.Path]::GetTempPath();");
@@ -603,7 +600,6 @@ bool run_pwsh_app()
     char* command_args[] = {
         assembly_path,
         "-NoLogo",
-        "-NoExit",
         "-Command",
         "Write-Host 'Hello PowerShell Host'"
     };
@@ -643,7 +639,8 @@ bool run_pwsh_lib()
         return false;
     }
 
-    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json", base_path, PATH_SEPARATOR_STR, "pwsh");
+    snprintf(runtime_config_path, HOSTFXR_MAX_PATH, "%s%s%s.runtimeconfig.json",
+        base_path, PATH_SEPARATOR_STR, "pwsh");
     snprintf(assembly_path, HOSTFXR_MAX_PATH, "%s%s%s.dll", base_path, PATH_SEPARATOR_STR, "pwsh");
 
     printf("loading %s\n", runtime_config_path);
@@ -667,24 +664,31 @@ bool run_pwsh_lib()
         return false;
     }
 
-    char host_assembly_path[HOSTFXR_MAX_PATH];
-    strncpy(host_assembly_path, g_PWSH_HOST_DLL, HOSTFXR_MAX_PATH);
-    call_pwsh_sdk(hostfxr, host_assembly_path);
+    call_pwsh_sdk(hostfxr);
+
+    return true;
+}
+
+bool detect_pwsh()
+{
+    // TODO: proper detect PowerShell installation path
+
+    if (get_env("PWSH_BASE_PATH", g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH) < 1) {
+#ifdef _WIN32
+        strncpy(g_PWSH_BASE_PATH, "C:\\Program Files\\PowerShell\\7-preview", HOSTFXR_MAX_PATH);
+#else
+        strncpy(g_PWSH_BASE_PATH, "/opt/microsoft/powershell/7-preview", HOSTFXR_MAX_PATH);
+#endif
+        printf("Set PWSH_BASE_PATH environment variable to point to PowerShell installation path\n");
+        printf("using hardcoded PowerShell installation path: \"%s\"\n", g_PWSH_BASE_PATH);
+    }
 
     return true;
 }
 
 int main(int argc, char** argv)
 {
-    if (get_env("PWSH_BASE_PATH", g_PWSH_BASE_PATH, HOSTFXR_MAX_PATH) < 1) {
-        printf("Set PWSH_BASE_PATH environment variable to point to PowerShell installation path\n");
-        return -1;
-    }
-
-    if (get_env("PWSH_HOST_DLL", g_PWSH_HOST_DLL, HOSTFXR_MAX_PATH) < 1) {
-        printf("Set PWSH_HOST_DLL environment variable to point to NativeHost.dll bindings\n");
-        return -1;
-    }
+    detect_pwsh();
 
     if (argc > 1) {
         if (!strcmp(argv[1], "app")) {
@@ -692,6 +696,8 @@ int main(int argc, char** argv)
         } else if (!strcmp(argv[1], "lib")) {
             run_pwsh_lib();
         }
+    } else {
+        run_pwsh_app();
     }
 
     return 0;

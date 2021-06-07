@@ -5,6 +5,11 @@ project(native-host C CXX)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
 
+include(cmake/yarc.cmake)
+
+find_program(DOTNET_EXECUTABLE dotnet REQUIRED)
+find_program(PWSH_EXECUTABLE pwsh REQUIRED)
+
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
@@ -20,15 +25,31 @@ if(WIN32)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCC)
-	set(C_FLAGS "${C_FLAGS} -Wformat-truncation=0")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-truncation=0")
 endif()
+
+set(DOTNET_ARGS "build"
+	"${CMAKE_SOURCE_DIR}/bindings"
+	"-c"
+	"Release")
+
+set(BINDINGS_DLL "${CMAKE_SOURCE_DIR}/bindings/bin/Release/net5.0/Bindings.dll")
+
+add_custom_command(COMMAND ${DOTNET_EXECUTABLE}
+	ARGS ${DOTNET_ARGS}
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/bindings"
+	OUTPUT ${BINDINGS_DLL}
+	DEPENDS "${CMAKE_SOURCE_DIR}/bindings/Bindings.cs")
+
+yarc_bundle(NAME bindings
+	RESOURCES ${BINDINGS_DLL}
+	OUTPUT resources.c)
 
 include_directories(include)
 
 add_executable(native-host
+	resources.c
 	main.c)
-
-#set(NETHOST_LIBRARY "${CMAKE_SOURCE_DIR}/nethost/libnethost.a")
 
 target_link_libraries(native-host
 	${CMAKE_DL_LIBS} Threads::Threads)
